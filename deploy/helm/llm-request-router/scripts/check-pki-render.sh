@@ -430,4 +430,69 @@ grep -Fq \
   'llmRequestRouter.tls.mode must be certManager or existingSecret, got "externalSecret"' \
   "${invalid_mode_error}" || fail "unknown mode render did not return the expected guard message"
 
+# The OpenBao signing role is created with allow_subdomains=true and
+# allow_bare_domains=false, so a SAN outside allowed_domains renders cleanly and
+# then fails at cert-manager issuance. Catch it at render instead. These cases
+# pin the coverage rules, including the ones that must NOT fail: a wrong guard
+# here would block valid deployments, which is worse than the trap it replaces.
+assert_allowed_domains_case() {
+  local description="$1"
+  local expectation="$2"
+  local allowed_domains="$3"
+  local dns_name="$4"
+  local case_values="${tmp_dir}/allowed-domains-values.yaml"
+  local case_error="${tmp_dir}/allowed-domains.err"
+
+  cat > "${case_values}" <<EOF
+llmRequestRouter:
+  backendRouter:
+    enabled: true
+    image:
+      repository: nvcf/stargate-k8s-router
+  certificate:
+    enabled: true
+    issuerRef:
+      name: nvcf-openbao-pki
+    dnsNames: ["${dns_name}"]
+  tls:
+    certPath: /etc/stargate/tls/tls.crt
+    keyPath: /etc/stargate/tls/tls.key
+    quicInsecure: false
+  pki:
+    enabled: true
+    allowedDomains: "${allowed_domains}"
+    image:
+      repository: nvcf-openbao-migrations
+      tag: "1"
+EOF
+
+  if helm template llm-request-router ./llm-request-router \
+    --namespace nvcf \
+    --values ./llm-request-router/values.yaml \
+    --values "${case_values}" \
+    > /dev/null 2> "${case_error}"; then
+    [ "${expectation}" = "pass" ] || fail "${description} unexpectedly rendered"
+  else
+    [ "${expectation}" = "fail" ] || fail "${description} unexpectedly failed to render"
+    grep -Fq "is not covered by llmRequestRouter.pki.allowedDomains" "${case_error}" ||
+      fail "${description} did not return the allowed-domains guard message"
+  fi
+}
+
+# Must render: these are valid deployments.
+assert_allowed_domains_case "documented customer-domain plus cluster.local" \
+  pass "example.com,cluster.local" "llm-request-router.nvcf.svc.cluster.local"
+assert_allowed_domains_case "whitespace around the comma separators" \
+  pass " example.com , cluster.local " "llm-request-router.nvcf.svc.cluster.local"
+assert_allowed_domains_case "allowed domain deeper in the suffix" \
+  pass "svc.cluster.local" "llm-request-router.nvcf.svc.cluster.local"
+
+# Must fail: issuance would be rejected.
+assert_allowed_domains_case "no overlap with the certificate names" \
+  fail "example.com" "llm-request-router.nvcf.svc.cluster.local"
+assert_allowed_domains_case "name that ends with the domain but is not a subdomain" \
+  fail "cluster.local" "evilcluster.local"
+assert_allowed_domains_case "bare domain, which the role refuses to issue" \
+  fail "llm-request-router-headless.nvcf.svc.cluster.local" "llm-request-router-headless.nvcf.svc.cluster.local"
+
 echo "PKI render checks passed"

@@ -16,6 +16,7 @@
 {{ $certificate := .Values.llmRequestRouter.certificate | default dict -}}
 {{- if $certificate.enabled }}
 {{- include "llm-request-router.validateCertificateDnsNames" . }}
+{{- include "llm-request-router.validatePkiAllowedDomains" . }}
 {{- $issuerRef := $certificate.issuerRef | default dict -}}
 {{- $dnsNames := include "llm-request-router.effectiveCertificateDnsNames" . | fromJsonArray }}
 {{- if empty $dnsNames -}}

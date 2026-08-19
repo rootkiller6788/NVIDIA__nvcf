@@ -174,6 +174,48 @@ comparing suffixes.
 {{- end -}}
 {{- end -}}
 
+{{/*
+The OpenBao signing role this chart provisions is created with
+allow_subdomains=true, allow_bare_domains=false, and allow_wildcard_certificates=true.
+A SAN outside allowed_domains renders cleanly and then fails at issuance, so
+check it here instead. Only applies when this chart owns both the Certificate
+and the role.
+
+Coverage, matching the role flags:
+  name.sub.domain   covered when it is a strict subdomain of an allowed domain
+  *.sub.domain      same, and additionally when the wildcard sits directly on an
+                    allowed domain
+  domain            never covered on its own, because bare issuance is refused
+*/}}
+{{- define "llm-request-router.validatePkiAllowedDomains" -}}
+{{- $pki := .Values.llmRequestRouter.pki | default dict -}}
+{{- $certificate := .Values.llmRequestRouter.certificate | default dict -}}
+{{- if and $pki.enabled $certificate.enabled -}}
+{{- $configured := $pki.allowedDomains | default "" | toString -}}
+{{- $allowed := splitList "," $configured -}}
+{{- $dnsNames := include "llm-request-router.effectiveCertificateDnsNames" . | fromJsonArray -}}
+{{- range $dnsName := $dnsNames -}}
+{{- $name := $dnsName | toString | lower | trim -}}
+{{- $isWildcard := hasPrefix "*." $name -}}
+{{- $base := trimPrefix "*." $name -}}
+{{- $covered := false -}}
+{{- range $allowedDomain := $allowed -}}
+{{- $domain := $allowedDomain | toString | lower | trim -}}
+{{- if $domain -}}
+{{- if hasSuffix (printf ".%s" $domain) $base -}}
+{{- $covered = true -}}
+{{- else if and $isWildcard (eq $base $domain) -}}
+{{- $covered = true -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $covered -}}
+{{- fail (printf "certificate DNS name %q is not covered by llmRequestRouter.pki.allowedDomains %q. The OpenBao signing role uses allow_subdomains=true and allow_bare_domains=false, so cert-manager issuance would be rejected after a successful render. Add a covering suffix, for example cluster.local for in-cluster names." $dnsName $configured) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "llm-request-router.serviceAccountName" -}}
 {{- if .Values.llmRequestRouter.serviceAccount.create }}
 {{- default (include "llm-request-router.fullname" .) .Values.llmRequestRouter.serviceAccount.name }}

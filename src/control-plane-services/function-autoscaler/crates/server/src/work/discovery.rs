@@ -15,9 +15,7 @@
  * limitations under the License.
  */
 
-use crate::cassandra::{
-    cassandra_service::CassandraServiceManager, statements::ActiveFunctionTable,
-};
+use crate::cassandra::cassandra_service::CassandraServiceManager;
 use crate::metrics;
 use crate::models::ActiveFunctionDetails;
 use crate::timeseries_db::timeseries_db_client::TimeseriesDbClient;
@@ -277,11 +275,7 @@ async fn fetch_function_state(
     let page_size = 2000;
 
     let db_recently_invoked = cassandra_service
-        .get_active_functions_with_token_range(
-            &range,
-            page_size,
-            ActiveFunctionTable::RecentlyInvokedFunctions,
-        )
+        .get_active_functions_with_token_range(&range, page_size)
         .await?;
 
     let timeseries_db_active_functions =
@@ -429,10 +423,7 @@ async fn execute_function_actions(
     );
 
     cassandra_service
-        .add_new_active_functions_batch(
-            &actions.add_recently_invoked,
-            ActiveFunctionTable::RecentlyInvokedFunctions,
-        )
+        .add_new_active_functions_batch(&actions.add_recently_invoked)
         .await?;
 
     for function in &actions.add_recently_invoked {
@@ -662,8 +653,6 @@ async fn get_recently_invoked_functions_with_semaphore(
                         nca_id: Some(nca_id.clone()),
                         last_updated_at: Some(end_time),
                         num_workers: None, // Recently invoked functions start with unknown worker count
-                        last_predicted_desired_instance_count: None,
-                        last_predicted_error_code: None,
                     };
 
                     tracing::debug!(
@@ -800,8 +789,6 @@ pub async fn get_functions_with_workers(
                     nca_id: Some(nca_id),
                     last_updated_at: Some(end_time),
                     num_workers,
-                    last_predicted_desired_instance_count: None,
-                    last_predicted_error_code: None,
                 };
 
                 let existing = by_key.get(&key).and_then(|d| d.num_workers);
@@ -921,8 +908,6 @@ pub async fn get_functions_with_active_instances(
                             nca_id: Some(nca_id.clone()),
                             last_updated_at: Some(end_time),
                             num_workers: Some(-1), // BYOC functions have num_workers = -1
-                            last_predicted_desired_instance_count: None,
-                            last_predicted_error_code: None,
                         };
 
                         tracing::debug!(

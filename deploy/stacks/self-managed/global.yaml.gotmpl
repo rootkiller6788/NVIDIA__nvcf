@@ -842,6 +842,35 @@ llmRequestRouter:
   image:
     registry: {{ .Values.global.image.registry }}
     repository: {{ .Values.global.image.repository }}/stargate
+  {{- /*
+  Backend routing follows the LLM addon rather than being separately opted into.
+  A worker holds one registration stream and one reverse tunnel per replica, and
+  those must reach a named replica, so the router is the connection path in
+  every topology. Keeping it always on means single-cluster installs exercise
+  the same path that split-cluster and multi-region installs depend on, instead
+  of that path only appearing where it is hardest to test.
+
+  The dial addresses default to the backend-router Service in-cluster, so no
+  configuration is required. Split-cluster and multi-region operators override
+  addons.llm.requestRouter.backendRouter.pylon*DialAddress with externally
+  reachable addresses.
+  */}}
+  backendRouter:
+    enabled: {{ dig "addons" "llm" "requestRouter" "backendRouter" "enabled" (dig "addons" "llm" "enabled" false .Values) .Values }}
+    replicaCount: {{ dig "addons" "llm" "requestRouter" "backendRouter" "replicaCount" 2 .Values }}
+    image:
+      registry: {{ .Values.global.image.registry }}
+      repository: {{ .Values.global.image.repository }}/stargate-k8s-router
+    {{- with dig "addons" "llm" "requestRouter" "backendRouter" "pylonGrpcDialAddress" "" .Values }}
+    pylonGrpcDialAddress: {{ . | quote }}
+    {{- end }}
+    {{- with dig "addons" "llm" "requestRouter" "backendRouter" "pylonReverseTunnelDialAddress" "" .Values }}
+    pylonReverseTunnelDialAddress: {{ . | quote }}
+    {{- end }}
+    {{- if .Values.global.imagePullSecrets }}
+    imagePullSecrets:
+      {{- toYaml .Values.global.imagePullSecrets | nindent 6 }}
+    {{- end }}
   {{- with include "nvcf.nodeSelector" (dict "type" "controlplane" "selectors" .Values.global.nodeSelectors) }}
   {{- . | nindent 2 }}
   {{- end }}

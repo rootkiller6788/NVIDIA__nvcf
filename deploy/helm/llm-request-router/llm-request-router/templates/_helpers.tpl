@@ -217,11 +217,37 @@ comparing suffixes.
 {{- end -}}
 {{- end }}
 
+{{/*
+Workers dial these to reach the router. In-cluster the backend-router Service is
+the right answer and needs no configuration, which is what lets backend routing
+be on by default. Split-cluster and multi-region operators override both with an
+externally reachable address.
+*/}}
+{{- define "llm-request-router.backendRouterGrpcDialAddress" -}}
+{{- $backendRouter := .Values.llmRequestRouter.backendRouter | default dict -}}
+{{- $configured := dig "pylonGrpcDialAddress" "" $backendRouter | toString | trim -}}
+{{- if $configured -}}
+{{- $configured -}}
+{{- else -}}
+{{- printf "%s.%s.svc.cluster.local:%v" (include "llm-request-router.backendRouterName" .) (include "llm-request-router.namespace" .) (dig "service" "grpcPort" 50071 $backendRouter) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "llm-request-router.backendRouterReverseTunnelDialAddress" -}}
+{{- $backendRouter := .Values.llmRequestRouter.backendRouter | default dict -}}
+{{- $configured := dig "pylonReverseTunnelDialAddress" "" $backendRouter | toString | trim -}}
+{{- if $configured -}}
+{{- $configured -}}
+{{- else -}}
+{{- printf "%s.%s.svc.cluster.local:%v" (include "llm-request-router.backendRouterName" .) (include "llm-request-router.namespace" .) (dig "service" "reverseTunnelPort" 50072 $backendRouter) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "llm-request-router.backendRouterImage" -}}
 {{- $image := .Values.llmRequestRouter.backendRouter.image -}}
 {{- $registry := default .Values.llmRequestRouter.image.registry $image.registry -}}
 {{- $repository := default .Values.llmRequestRouter.image.repository $image.repository -}}
-{{- $tag := required "llmRequestRouter.backendRouter.image.tag is required when backendRouter.enabled is true" $image.tag -}}
+{{- $tag := default .Chart.AppVersion $image.tag -}}
 {{- if $registry -}}
 {{- printf "%s/%s:%s" $registry $repository $tag -}}
 {{- else -}}

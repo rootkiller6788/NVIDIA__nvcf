@@ -14,6 +14,12 @@ metadata:
   labels:
     {{- include "llm-request-router.backendRouterLabels" . | nindent 4 }}
 spec:
+  {{- /*
+  Each router replica terminates QUIC itself and cannot resume a session that
+  began on another replica. Pin a client to one replica so a rehash mid-session
+  does not cost the worker a stateless reset and reconnect.
+  */}}
+  sessionAffinity: ClientIP
   selector:
     {{- include "llm-request-router.backendRouterSelectorLabels" . | nindent 4 }}
   ports:
@@ -132,9 +138,24 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.llmRequestRouter.backendRouter.affinity }}
+      {{- if .Values.llmRequestRouter.backendRouter.affinity }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.llmRequestRouter.backendRouter.affinity | nindent 8 }}
+      {{- else }}
+      {{- /*
+      Soft, not required: two replicas on one node still survive a pod crash,
+      and a hard constraint would leave the second replica unschedulable on a
+      single-node cluster such as k3d.
+      */}}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "llm-request-router.backendRouterSelectorLabels" . | nindent 20 }}
       {{- end }}
       {{- with .Values.llmRequestRouter.backendRouter.tolerations }}
       tolerations:

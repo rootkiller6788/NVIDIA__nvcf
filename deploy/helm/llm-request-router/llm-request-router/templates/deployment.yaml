@@ -100,8 +100,8 @@ spec:
             - --reverse-tunnel-listen-addr={{ .Values.llmRequestRouter.transport.reverseTunnelListenAddr }}
             {{- end }}
             {{- if $backendRouterEnabled }}
-            - --grpc-pylon-dial-addr={{ required "llmRequestRouter.backendRouter.pylonGrpcDialAddress is required when backendRouter.enabled is true" .Values.llmRequestRouter.backendRouter.pylonGrpcDialAddress }}
-            - --reverse-tunnel-pylon-dial-addr={{ required "llmRequestRouter.backendRouter.pylonReverseTunnelDialAddress is required when backendRouter.enabled is true" .Values.llmRequestRouter.backendRouter.pylonReverseTunnelDialAddress }}
+            - --grpc-pylon-dial-addr={{ include "llm-request-router.backendRouterGrpcDialAddress" . }}
+            - --reverse-tunnel-pylon-dial-addr={{ include "llm-request-router.backendRouterReverseTunnelDialAddress" . }}
             {{- else if and .Values.llmRequestRouter.transport.reverseTunnelListenAddr (gt $replicaCount 1) }}
             - --reverse-tunnel-pylon-dial-addr=$(POD_IP):{{ .Values.llmRequestRouter.service.reverseTunnelPort }}
             {{- end }}

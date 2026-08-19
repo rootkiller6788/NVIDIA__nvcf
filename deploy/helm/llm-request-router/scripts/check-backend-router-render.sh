@@ -10,7 +10,8 @@ rendered="$(mktemp)"
 disabled="$(mktemp)"
 external_service_account="$(mktemp)"
 wildcard_certificate="$(mktemp)"
-trap 'rm -f "$rendered" "$disabled" "$external_service_account" "$wildcard_certificate"' EXIT
+zero_config="$(mktemp)"
+trap 'rm -f "$rendered" "$disabled" "$external_service_account" "$wildcard_certificate" "$zero_config"' EXIT
 
 helm template llm-request-router "$chart_dir" \
   --namespace nvcf \
@@ -88,11 +89,50 @@ assert_contains "name: llm-request-router-backend-router" \
   "backend router workload and Service must use a stable name"
 assert_contains "kind: Deployment" \
   "backend router must render as a Deployment"
-assert_backend_router_replicas "1"
+assert_backend_router_replicas "2"
 assert_contains "kind: Role" \
   "backend router must render namespaced RBAC"
 assert_contains "resources: [\"endpointslices\"]" \
   "backend router must be allowed to watch EndpointSlices"
+
+# Backend routing follows the LLM addon, so it has to render with no
+# operator-supplied dial addresses at all. This renders exactly that case.
+helm template llm-request-router "$chart_dir" \
+  --namespace nvcf \
+  --set llmRequestRouter.image.registry=registry.example.invalid \
+  --set llmRequestRouter.image.repository=nvcf/stargate \
+  --set llmRequestRouter.backendRouter.enabled=true \
+  --set llmRequestRouter.backendRouter.image.repository=nvcf/stargate-k8s-router \
+  >"$zero_config"
+
+assert_zero_config_contains() {
+  local pattern="$1"
+  local message="$2"
+  if ! grep -Fq -- "$pattern" "$zero_config"; then
+    echo "FAIL: ${message}" >&2
+    exit 1
+  fi
+}
+
+assert_zero_config_contains "--grpc-pylon-dial-addr=llm-request-router-backend-router.nvcf.svc.cluster.local:50071" \
+  "gRPC dial address must default to the in-cluster backend-router Service"
+assert_zero_config_contains "--reverse-tunnel-pylon-dial-addr=llm-request-router-backend-router.nvcf.svc.cluster.local:50072" \
+  "reverse-tunnel dial address must default to the in-cluster backend-router Service"
+
+# An explicitly configured address must still win over the default.
+assert_contains "--grpc-pylon-dial-addr=llm-router.example.invalid:443" \
+  "configured gRPC dial address must override the in-cluster default"
+
+# Each replica terminates QUIC itself and cannot resume another replica's
+# session, so clients must be pinned.
+assert_contains "sessionAffinity: ClientIP" \
+  "backend router Service must pin clients so QUIC sessions do not rehash"
+
+# Two replicas on one node would not survive node loss.
+assert_contains "podAntiAffinity:" \
+  "backend router must default to spreading replicas across nodes"
+assert_contains "topologyKey: kubernetes.io/hostname" \
+  "backend router anti-affinity must spread across nodes, not a narrower topology"
 assert_contains "serviceAccountName: llm-request-router-backend-router" \
   "backend router must use its dedicated ServiceAccount"
 assert_service_account_exists "$rendered" "llm-request-router-backend-router"
@@ -131,17 +171,6 @@ helm template llm-request-router "$chart_dir" \
 
 if grep -Fq "llm-request-router-backend-router" "$disabled"; then
   echo "FAIL: disabled backend router must not render router resources" >&2
-  exit 1
-fi
-
-if helm template llm-request-router "$chart_dir" \
-  --namespace nvcf \
-  --set llmRequestRouter.image.registry=registry.example.invalid \
-  --set llmRequestRouter.image.repository=nvcf/stargate \
-  --set llmRequestRouter.backendRouter.enabled=true \
-  --set llmRequestRouter.backendRouter.image.tag=next \
-  >/dev/null 2>&1; then
-  echo "FAIL: enabled backend router must require pylon dial addresses" >&2
   exit 1
 fi
 
@@ -206,17 +235,8 @@ if ! grep -Fq -- "serviceAccountName: external-backend-router" "$external_servic
 fi
 assert_backend_router_role_binding_subject "$external_service_account" "external-backend-router"
 
-if helm template llm-request-router "$chart_dir" \
-  --namespace nvcf \
-  --set llmRequestRouter.image.registry=registry.example.invalid \
-  --set llmRequestRouter.image.repository=nvcf/stargate \
-  --set llmRequestRouter.backendRouter.enabled=true \
-  --set llmRequestRouter.backendRouter.pylonGrpcDialAddress=llm-router.example.invalid:443 \
-  --set llmRequestRouter.backendRouter.pylonReverseTunnelDialAddress=llm-router.example.invalid:8080 \
-  >/dev/null 2>&1; then
-  echo "FAIL: enabled backend router must require an explicit image tag" >&2
-  exit 1
-fi
+assert_zero_config_contains "image: registry.example.invalid/nvcf/stargate-k8s-router:0.9.0" \
+  "backend router image must fall back to the main registry and the chart appVersion"
 
 helm template llm-request-router "$chart_dir" \
   --namespace nvcf \

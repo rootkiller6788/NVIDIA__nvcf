@@ -92,6 +92,7 @@ jobs:
           bash tools/ci/test-bazel-remote-probe
           bash tools/ci/test-bazel-lock-touches-java
           python3 tools/ci/test-bazel-lock-touches-java-properties
+          bash tools/ci/test-image-push-manual
 
       - name: Compute changed subtrees
         id: detect

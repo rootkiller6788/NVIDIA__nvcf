@@ -49,19 +49,27 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s" (include "llm-request-router.name" .) .Release.Name -}}
 {{- end }}
 
+{{- define "llm-request-router.backendRouterName" -}}
+{{- printf "%s-backend-router" (include "llm-request-router.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
+{{- define "llm-request-router.backendRouterSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "llm-request-router.backendRouterName" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- define "llm-request-router.backendRouterLabels" -}}
+helm.sh/chart: {{ include "llm-request-router.chart" . }}
+{{ include "llm-request-router.backendRouterSelectorLabels" . }}
+app.kubernetes.io/component: backend-router
+{{- with .Values.llmRequestRouter.backendRouter.image.tag }}
+app.kubernetes.io/version: {{ . | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
 {{- define "llm-request-router.namespace" -}}
 {{- default .Release.Namespace .Values.llmRequestRouter.namespace -}}
-{{- end -}}
-
-{{- define "llm-request-router.advertisedHostnameTemplate" -}}
-{{- $configuredTemplate := .Values.llmRequestRouter.kubernetes.advertisedHostnameTemplate -}}
-{{- if $configuredTemplate -}}
-{{- $configuredTemplate -}}
-{{- else if eq (.Values.llmRequestRouter.replicaCount | int) 1 -}}
-{{- printf "%s.%s.svc.cluster.local" (include "llm-request-router.fullname" .) (include "llm-request-router.namespace" .) -}}
-{{- else -}}
-{{- printf "{pod_name}.%s.%s.svc.cluster.local" .Values.llmRequestRouter.service.headlessName (include "llm-request-router.namespace" .) -}}
-{{- end -}}
 {{- end -}}
 
 {{- define "llm-request-router.isValidDnsName" -}}
@@ -84,6 +92,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
+The Certificate that gets issued is the configured dnsNames plus, when backend
+routing is on, the wildcard form of the advertised pod hostname. Validation and
+rendering must agree on that list, so both read it from here.
+*/}}
+{{- define "llm-request-router.effectiveCertificateDnsNames" -}}
+{{- $certificate := .Values.llmRequestRouter.certificate | default dict -}}
+{{- $dnsNames := dig "dnsNames" (list) $certificate -}}
+{{- if dig "backendRouter" "enabled" false .Values.llmRequestRouter -}}
+{{- $wildcard := replace "{pod_name}" "*" (include "llm-request-router.advertisedHostnameTemplate" .) -}}
+{{- if not (has $wildcard $dnsNames) -}}
+{{- $dnsNames = append $dnsNames $wildcard -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $dnsNames -}}
+{{- end -}}
+
+{{/*
 Certificate wildcards follow rustls-webpki rules: only a complete leftmost
 label may be a wildcard, and it matches exactly one hostname label. Replace
 the runtime placeholder with a representative StatefulSet pod name before
@@ -92,7 +117,7 @@ comparing suffixes.
 {{- define "llm-request-router.validateCertificateDnsNames" -}}
 {{- $certificate := .Values.llmRequestRouter.certificate | default dict -}}
 {{- if $certificate.enabled -}}
-{{- $dnsNames := $certificate.dnsNames | default (list) -}}
+{{- $dnsNames := include "llm-request-router.effectiveCertificateDnsNames" . | fromJsonArray -}}
 {{- if eq (len $dnsNames) 0 -}}
 {{- fail "llmRequestRouter.certificate.dnsNames is required when certificate.enabled is true" -}}
 {{- end -}}
@@ -157,10 +182,46 @@ comparing suffixes.
 {{- end }}
 {{- end }}
 
+{{- define "llm-request-router.backendRouterServiceAccountName" -}}
+{{- $serviceAccount := .Values.llmRequestRouter.backendRouter.serviceAccount | default dict -}}
+{{- if $serviceAccount.create -}}
+{{- default (include "llm-request-router.backendRouterName" .) $serviceAccount.name -}}
+{{- else -}}
+{{- required "llmRequestRouter.backendRouter.serviceAccount.name is required when backendRouter is enabled and backendRouter.serviceAccount.create is false" $serviceAccount.name -}}
+{{- end -}}
+{{- end }}
+
 {{- define "llm-request-router.image" -}}
 {{- $registry := .Values.llmRequestRouter.image.registry -}}
 {{- $repository := .Values.llmRequestRouter.image.repository -}}
 {{- $tag := default .Chart.AppVersion .Values.llmRequestRouter.image.tag -}}
+{{- if $registry -}}
+{{- printf "%s/%s:%s" $registry $repository $tag -}}
+{{- else -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+{{- end }}
+
+{{- define "llm-request-router.advertisedHostnameTemplate" -}}
+{{- $configured := .Values.llmRequestRouter.kubernetes.advertisedHostnameTemplate -}}
+{{- $backendRouterEnabled := dig "backendRouter" "enabled" false .Values.llmRequestRouter -}}
+{{- if and $backendRouterEnabled $configured (ne (len (splitList "{pod_name}" $configured)) 2) -}}
+{{- fail "llmRequestRouter.kubernetes.advertisedHostnameTemplate must contain exactly one {pod_name} when backendRouter.enabled is true" -}}
+{{- end -}}
+{{- if $configured -}}
+{{- $configured -}}
+{{- else if or $backendRouterEnabled (gt (.Values.llmRequestRouter.replicaCount | int) 1) -}}
+{{- printf "{pod_name}.%s.%s.svc.cluster.local" .Values.llmRequestRouter.service.headlessName (include "llm-request-router.namespace" .) -}}
+{{- else -}}
+{{- printf "%s.%s.svc.cluster.local" (include "llm-request-router.fullname" .) (include "llm-request-router.namespace" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "llm-request-router.backendRouterImage" -}}
+{{- $image := .Values.llmRequestRouter.backendRouter.image -}}
+{{- $registry := default .Values.llmRequestRouter.image.registry $image.registry -}}
+{{- $repository := default .Values.llmRequestRouter.image.repository $image.repository -}}
+{{- $tag := required "llmRequestRouter.backendRouter.image.tag is required when backendRouter.enabled is true" $image.tag -}}
 {{- if $registry -}}
 {{- printf "%s/%s:%s" $registry $repository $tag -}}
 {{- else -}}
@@ -238,6 +299,39 @@ the mount and the Stargate arguments are all conditional on them.
 {{- else -}}
 /etc/stargate/tls
 {{- end -}}
+{{- end }}
+
+{{- define "llm-request-router.validateTlsCertKeyDir" -}}
+{{- $tls := .Values.llmRequestRouter.tls | default dict -}}
+{{- if and $tls.certPath $tls.keyPath (ne (dir $tls.certPath) (dir $tls.keyPath)) -}}
+{{- fail "llmRequestRouter.tls.certPath and llmRequestRouter.tls.keyPath must use the same directory" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "llm-request-router.validateBackendRouterTls" -}}
+{{- $tls := .Values.llmRequestRouter.tls | default dict -}}
+{{- $secretName := include "llm-request-router.tlsSecretName" . -}}
+{{- $hasSecret := not (empty $secretName) -}}
+{{- $hasCert := not (empty $tls.certPath) -}}
+{{- $hasKey := not (empty $tls.keyPath) -}}
+{{- $hasAny := or $hasSecret $hasCert $hasKey -}}
+{{- $hasAll := and $hasSecret $hasCert $hasKey -}}
+{{- if and $hasAny (not $hasAll) -}}
+{{- fail "llmRequestRouter backend routing requires tls.secretName (or certificate secret), tls.certPath, and tls.keyPath together" -}}
+{{- end -}}
+{{- if and (not $tls.quicInsecure) (not $hasAll) -}}
+{{- fail "llmRequestRouter backend routing requires a TLS Secret and cert/key paths when tls.quicInsecure is false" -}}
+{{- end -}}
+{{- if $hasAll -}}
+{{- include "llm-request-router.validateTlsCertKeyDir" . -}}
+{{- end -}}
+{{- if and $hasAll (ne (clean (include "llm-request-router.tlsMountPath" .)) (clean (dir $tls.certPath))) -}}
+{{- fail "llmRequestRouter.tls.mountPath must match the directory containing tls.certPath and tls.keyPath" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "llm-request-router.validateBackendRouterServiceAccount" -}}
+{{- $_ := include "llm-request-router.backendRouterServiceAccountName" . -}}
 {{- end }}
 
 {{/*

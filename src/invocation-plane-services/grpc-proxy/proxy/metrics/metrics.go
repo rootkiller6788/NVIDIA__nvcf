@@ -67,6 +67,20 @@ var (
 			Help:      "total nats errors on a nats connection",
 		})
 
+	NatsFailureCounter = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: NatsNamespace,
+			Name:      "failure_total",
+			Help:      "total nats failures, by reason",
+		}, []string{"reason"})
+
+	NatsDisconnectCounter = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: NatsNamespace,
+			Name:      "disconnect_total",
+			Help:      "total nats disconnect events",
+		})
+
 	NatsReconnectCounter = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: NatsNamespace,
@@ -307,6 +321,26 @@ var (
 		})
 )
 
+const (
+	NatsErrorReasonCertificateExpired = "certificate_expired"
+	NatsErrorReasonTLSVerification    = "tls_verification"
+	NatsErrorReasonTLS                = "tls"
+	NatsErrorReasonAuthentication     = "authentication"
+	NatsErrorReasonTimeout            = "timeout"
+	NatsErrorReasonConnection         = "connection"
+	NatsErrorReasonOther              = "other"
+)
+
+var NatsErrorReasons = []string{
+	NatsErrorReasonCertificateExpired,
+	NatsErrorReasonTLSVerification,
+	NatsErrorReasonTLS,
+	NatsErrorReasonAuthentication,
+	NatsErrorReasonTimeout,
+	NatsErrorReasonConnection,
+	NatsErrorReasonOther,
+}
+
 func init() {
 	// Set up OpenTelemetry metrics with Prometheus exporter
 	exporter := lo.Must(otelprom.New())
@@ -322,6 +356,9 @@ func init() {
 	}
 	for _, result := range ConnectResults {
 		WorkerConnectTotal.WithLabelValues(result)
+	}
+	for _, reason := range NatsErrorReasons {
+		NatsFailureCounter.WithLabelValues(reason)
 	}
 }
 

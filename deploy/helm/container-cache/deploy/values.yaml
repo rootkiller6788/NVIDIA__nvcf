@@ -81,6 +81,14 @@ cache:
   # under heavy concurrent large transfers, which starved even /healthz and
   # tripped the liveness probe.
   workerConnection: 16384
+  # Number of nginx worker processes. Leave empty to derive it from
+  # resources.limits.cpu, which is almost always what you want: nginx's own
+  # `auto` reads the host's core count and cannot see the cgroup quota, so on a
+  # large node it starts several times more workers than the pod can run.
+  #
+  # This is per process, and worker_connections above is per worker, so total
+  # connection capacity is the product of the two.
+  workerProcesses: ""
 
 # Liveness/readiness probe tuning for the nginx-proxy container. /healthz is
 # served on a dedicated port but by the same worker processes, so under heavy

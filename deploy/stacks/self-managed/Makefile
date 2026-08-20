@@ -6,6 +6,7 @@ test:
 	@tests/llm-router-worker-address.sh
 	@tests/llm-router-split-cluster.sh
 	@tests/llm-pki-openbao-migration.sh
+	@tests/api-keys-startup-probe.sh
 	@tests/llm-pki-release.sh
 	@tests/check-llm-pki-issuer.sh
 	@tests/pdb-value-wiring.sh

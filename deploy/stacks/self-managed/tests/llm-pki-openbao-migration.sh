@@ -16,7 +16,13 @@ fail() {
 
 mkdir -p "$test_stack_dir"
 cp -R "$stack_dir"/. "$test_stack_dir"
-printf '{}\n' >"$secrets_file"
+printf '%s\n' \
+  'openbao:' \
+  '  migrations:' \
+  '    env:' \
+  '      - name: EXISTING_SECRET_ENV' \
+  '        value: preserved' \
+  >"$secrets_file"
 printf '%s\n' \
   'addons:' \
   '  llm:' \
@@ -45,8 +51,17 @@ HELMFILE_ENV="$environment_name" \
     write-values \
     --output-file-template "$values_file"
 
-actual="$(yq -r '.openbao.migrations.env[]? | select(.name == "ADDONS_LLM_ENABLED") | .value' "$values_file")"
+environment_value() {
+  local name="$1"
+  yq -r ".openbao.migrations.env[]? | select(.name == \"$name\") | .value" "$values_file"
+}
+
+actual="$(environment_value ADDONS_LLM_ENABLED)"
 test "$actual" = "true" ||
   fail "expected ADDONS_LLM_ENABLED=true in the OpenBao migration environment, got ${actual:-missing}"
+
+actual="$(environment_value EXISTING_SECRET_ENV)"
+test "$actual" = "preserved" ||
+  fail "expected existing migration environment entries to be preserved, got ${actual:-missing}"
 
 echo "llm-pki-openbao-migration: all checks passed"

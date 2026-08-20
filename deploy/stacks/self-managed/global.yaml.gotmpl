@@ -121,6 +121,8 @@ openbao:
       {{- end }}
       - name: ADDONS_LLM_ENABLED
         value: {{ dig "addons" "llm" "enabled" false .Values | quote }}
+      - name: NVCF_SERVICE_PKI_ALLOWED_DOMAINS
+        value: {{ dig "addons" "llm" "pki" "allowedDomains" "" .Values | quote }}
 
     # merge the rest of the user-supplied migrations block, but drop
     # image and env sub-blocks so we don't clobber the defaults above.

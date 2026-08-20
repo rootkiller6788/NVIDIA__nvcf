@@ -60,6 +60,10 @@ actual="$(environment_value ADDONS_LLM_ENABLED)"
 test "$actual" = "true" ||
   fail "expected ADDONS_LLM_ENABLED=true in the OpenBao migration environment, got ${actual:-missing}"
 
+actual="$(environment_value NVCF_SERVICE_PKI_ALLOWED_DOMAINS)"
+test "$actual" = "cluster.local" ||
+  fail "expected NVCF_SERVICE_PKI_ALLOWED_DOMAINS=cluster.local in the OpenBao migration environment, got ${actual:-missing}"
+
 actual="$(environment_value EXISTING_SECRET_ENV)"
 test "$actual" = "preserved" ||
   fail "expected existing migration environment entries to be preserved, got ${actual:-missing}"

@@ -9,3 +9,5 @@ openbao:
 {{- end }}
       - name: ADDONS_LLM_ENABLED
         value: {{ dig "addons" "llm" "enabled" false .Values | quote }}
+      - name: NVCF_SERVICE_PKI_ALLOWED_DOMAINS
+        value: {{ dig "addons" "llm" "pki" "allowedDomains" "" .Values | quote }}

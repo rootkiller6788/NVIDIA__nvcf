@@ -476,6 +476,18 @@ ingress:
       nats:
         enabled: false
         routeAnnotations: {}
+      # Backend-router routes for split-cluster LLM worker registration and
+      # reverse QUIC tunnels. The target router selects the named Stargate pod
+      # by HTTP/2 authority and QUIC SNI.
+      llmWorker:
+        enabled: false
+        backend:
+          name: llm-request-router-backend-router
+          # Required when llmWorker is enabled; normally the NVCF namespace.
+          namespace: ""
+          grpcPort: 50071
+          quicPort: 50072
+        routeAnnotations: {}
       # ESS route. NVCF worker containers fetch function secrets from ess-api.
       # In split/multi-cluster installs ess runs in the control plane, so
       # compute-plane workers reach it through this route. Opt-in per environment.
@@ -493,6 +505,14 @@ ingress:
         name: "" # must be set by the environment when routes.nats.enabled=true
         namespace: "" # must be set by the environment when routes.nats.enabled=true
         listenerName: nats
+      llmGrpc:
+        name: "" # required when routes.llmWorker.enabled=true
+        namespace: "" # required when routes.llmWorker.enabled=true
+        listenerName: llm-grpc
+      llmQuic:
+        name: "" # required when routes.llmWorker.enabled=true
+        namespace: "" # required when routes.llmWorker.enabled=true
+        listenerName: llm-quic
 
 grpcproxy:
   # PDB: disabled by default. Enable when running multiple grpc-proxy replicas.

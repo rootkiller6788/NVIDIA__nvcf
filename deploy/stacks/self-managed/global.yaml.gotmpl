@@ -1282,6 +1282,7 @@ nvcfUi:
 nvcfGatewayRoutes:
   {{- $natsRouteEnabled := dig "ingress" "gatewayApi" "routes" "nats" "enabled" false .Values }}
   {{- $essRouteEnabled := dig "ingress" "gatewayApi" "routes" "ess" "enabled" false .Values }}
+  {{- $llmWorkerRouteEnabled := dig "ingress" "gatewayApi" "routes" "llmWorker" "enabled" false .Values }}
   domain: "{{ .Values.global.domain }}"
   gateways:
     shared:
@@ -1295,6 +1296,16 @@ nvcfGatewayRoutes:
       name: {{ required "ingress.gatewayApi.gateways.nats.name is required when ingress.gatewayApi.routes.nats.enabled is true" .Values.ingress.gatewayApi.gateways.nats.name }}
       namespace: {{ required "ingress.gatewayApi.gateways.nats.namespace is required when ingress.gatewayApi.routes.nats.enabled is true" .Values.ingress.gatewayApi.gateways.nats.namespace }}
       listenerName: {{ dig "ingress" "gatewayApi" "gateways" "nats" "listenerName" "nats" .Values }}
+    {{- end }}
+    {{- if $llmWorkerRouteEnabled }}
+    llmGrpc:
+      name: {{ required "ingress.gatewayApi.gateways.llmGrpc.name is required when ingress.gatewayApi.routes.llmWorker.enabled is true" .Values.ingress.gatewayApi.gateways.llmGrpc.name }}
+      namespace: {{ required "ingress.gatewayApi.gateways.llmGrpc.namespace is required when ingress.gatewayApi.routes.llmWorker.enabled is true" .Values.ingress.gatewayApi.gateways.llmGrpc.namespace }}
+      listenerName: {{ dig "ingress" "gatewayApi" "gateways" "llmGrpc" "listenerName" "llm-grpc" .Values }}
+    llmQuic:
+      name: {{ required "ingress.gatewayApi.gateways.llmQuic.name is required when ingress.gatewayApi.routes.llmWorker.enabled is true" .Values.ingress.gatewayApi.gateways.llmQuic.name }}
+      namespace: {{ required "ingress.gatewayApi.gateways.llmQuic.namespace is required when ingress.gatewayApi.routes.llmWorker.enabled is true" .Values.ingress.gatewayApi.gateways.llmQuic.namespace }}
+      listenerName: {{ dig "ingress" "gatewayApi" "gateways" "llmQuic" "listenerName" "llm-quic" .Values }}
     {{- end }}
   routes:
     nvcfApi:
@@ -1358,6 +1369,17 @@ nvcfGatewayRoutes:
       enabled: {{ $natsRouteEnabled }}
       routeAnnotations:
         {{ dig "ingress" "gatewayApi" "routes" "nats" "routeAnnotations" dict .Values | toYaml | nindent 8 | trim }}
+    llmWorker:
+      enabled: {{ $llmWorkerRouteEnabled }}
+      {{- if $llmWorkerRouteEnabled }}
+      backend:
+        name: {{ dig "ingress" "gatewayApi" "routes" "llmWorker" "backend" "name" "llm-request-router-backend-router" .Values }}
+        namespace: {{ required "ingress.gatewayApi.routes.llmWorker.backend.namespace is required when ingress.gatewayApi.routes.llmWorker.enabled is true" .Values.ingress.gatewayApi.routes.llmWorker.backend.namespace }}
+        grpcPort: {{ dig "ingress" "gatewayApi" "routes" "llmWorker" "backend" "grpcPort" 50071 .Values }}
+        quicPort: {{ dig "ingress" "gatewayApi" "routes" "llmWorker" "backend" "quicPort" 50072 .Values }}
+      {{- end }}
+      routeAnnotations:
+        {{ dig "ingress" "gatewayApi" "routes" "llmWorker" "routeAnnotations" dict .Values | toYaml | nindent 8 | trim }}
     # ESS route attaches to the shared Gateway (backend/hostname come from chart
     # defaults); only the enable flag and annotations are environment-driven.
     ess:
